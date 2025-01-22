@@ -35,7 +35,7 @@ Ensure the following dependencies are installed:
   pip install ultralytics opencv-python-headless numpy deepface argparse
   ```
   ```bash
-  pip install -r requirements.txt```
+  pip install -r requirements.txt
 - A pre-trained YOLOv8 model file (`yolov8n.pt`) in the project directory.
 
 ## Steps to Run the Code
