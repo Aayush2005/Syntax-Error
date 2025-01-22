@@ -34,7 +34,8 @@ Ensure the following dependencies are installed:
   ```bash
   pip install ultralytics opencv-python-headless numpy deepface argparse
   ```
-  ```pip install -r requirements.txt```
+  ```bash
+  pip install -r requirements.txt```
 - A pre-trained YOLOv8 model file (`yolov8n.pt`) in the project directory.
 
 ## Steps to Run the Code
@@ -69,7 +70,7 @@ Ensure the following dependencies are installed:
 - **Members:**
  1. Aayush Kumar Singh - AI/ML and Computer vision
  2. Adesh Dutta
- 3. Aman Kumar
+ 3. Aman Singh
 
 We are a team of enthusiastic engineers and researchers passionate about leveraging AI to solve real-world problems.
 
