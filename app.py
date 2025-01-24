@@ -17,10 +17,15 @@ class CameraSystem:
         self._initialize_camera()
 
     def _initialize_camera(self):
-        # Use video file instead of webcam
-        self.cap = cv2.VideoCapture('test.mp4')
-        if not self.cap.isOpened():
-            raise RuntimeError("Could not open video file")
+        with self.lock:
+            for index in [0, 1, 2]:
+                self.cap = cv2.VideoCapture(index)
+                if self.cap.isOpened():
+                    print(f"✅ Camera index {index} connected")
+                    self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                    self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                    return
+            raise RuntimeError("❌ No cameras detected")
 
     def get_frame(self):
         with self.lock:
