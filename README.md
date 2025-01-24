@@ -53,6 +53,8 @@ pip install -r requirements.txt
 pip install torch torchvision --extra-index-url https://download.pytorch.org/whl/cu117
 
 ```
+ - After installing everything, Just run ```app.py```
+   
 # Team Details
 - **Team Name:** Syntax Error
 - **Members:**
