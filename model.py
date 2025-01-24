@@ -3,26 +3,13 @@ import cv2
 import numpy as np
 from utils.centroidtracker import CentroidTracker
 from utils.object_trackable import TrackableObject
-import argparse
 from deepface import DeepFace
 from datetime import datetime
 import json
 
 # Initializing Parameters
-confThreshold = 0.7
+confThreshold = 0.6
 inpWidth, inpHeight = 640, 640
-
-# Custom function to handle video input
-def video_input(value):
-    try:
-        return int(value)
-    except ValueError:
-        return value
-
-# Argument Parser Setup
-parser = argparse.ArgumentParser(description="Women safety")
-parser.add_argument('--video', type=video_input, default=0, help='Video file path, URL, or webcam index')
-args = parser.parse_args()
 
 # Load YOLOv8 Model
 print("Loading model...")
@@ -34,17 +21,13 @@ trackableObjects = {}
 totalDown = 0
 totalUp = 0
 
-# Video Input Setup
-cap = cv2.VideoCapture(args.video)  # Use input from argparse
-if not cap.isOpened():
-    print("Error: Could not open video.")
-    exit()
-
-# Get the input video frame rate
-fps = cap.get(cv2.CAP_PROP_FPS)
-if fps == 0: 
-    fps = 30
-print(f"Input video FPS: {fps}")
+# Initialize JSON data dictionary
+json_data = {
+    "people_count": 0,
+    "men": 0,
+    "women": 0,
+    "lone_women": 0
+}
 
 # Function to Compute IoU
 def compute_iou(box1, box2):
@@ -61,7 +44,7 @@ def compute_iou(box1, box2):
     return iou
 
 # Function to Merge Overlapping Boxes
-def merge_boxes(boxes, iou_threshold=0.5):
+def merge_boxes(boxes, iou_threshold=0.3):
     merged_boxes = []
     while boxes:
         box = boxes.pop(0)
@@ -102,7 +85,7 @@ def predict_gender(cropped_person):
         print(f"Error during gender prediction: {e}")
         return "Unknown"
 
-# Counting Function
+
 def counting(objects, frame):
     global totalDown, totalUp
     frameHeight = frame.shape[0]
@@ -127,98 +110,99 @@ def counting(objects, frame):
 
         trackableObjects[objectID] = to
 
-# Initialize JSON data dictionary
-json_data = {
-    "people_count": 0,
-    "men": 0,
-    "women": 0,
-    "lone_women": 0
-}
-
-# Function to check if it is night time (6 PM to 6 AM)
 def is_night_time():
     current_hour = datetime.now().hour
     return current_hour >= 18 or current_hour < 6
 
-# Function to check if only one woman is detected (lone woman)
 def is_lone_person(objects):
     return len(objects) == 1
 
-# Processing Video Frames
-while cap.isOpened():
-    ret, frame = cap.read()
-    if not ret:
-        print("Done processing!")
-        break
+def process_frame(frame):
+    # Initialize default JSON data structure
+    json_data = {
+        "people_count": 0,
+        "men": 0,
+        "women": 0,
+        "lone_women": 0,
+        "timestamp": datetime.now().isoformat(),
+        "error": None
+    }
 
-    # YOLOv8 Inference
-    results = model(frame)
-    detections = results[0].boxes
-    rects = []
+    try:
+        # YOLOv8 Inference
+        results = model(frame)
+        detections = results[0].boxes
+        rects = []
 
-    for box in detections:
-        x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().astype(int)
-        conf = box.conf[0]
-        class_id = int(box.cls[0])
+        # Process detections
+        for box in detections:
+            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy().astype(int)
+            conf = box.conf[0]
+            class_id = int(box.cls[0])
+            
+            if class_id == 0 and conf > confThreshold:
+                rects.append([x1, y1, x2, y2])
 
-        # Only process "person" class (class_id == 0)
-        if class_id == 0 and conf > confThreshold:
-            rects.append([x1, y1, x2, y2])
+        # Merge overlapping boxes
+        rects = merge_boxes(rects.copy()) if rects else []
 
-    # Merge overlapping bounding boxes
-    rects = merge_boxes(rects)
+        # Gender detection
+        male_count = 0
+        female_count = 0
+        for rect in rects:
+            x1, y1, x2, y2 = rect
+            try:
+                cropped_person = frame[y1:y2, x1:x2]
+                if cropped_person.size == 0:
+                    continue
 
-    # Initialize counters for gender
-    male_count = 0
-    female_count = 0
+                gender = predict_gender(cropped_person)
+                if gender == 'Man':
+                    male_count += 1
+                elif gender == 'Woman':
+                    female_count += 1
+            except Exception as e:
+                print(f"Gender detection error: {e}")
 
-    # Process each detected person
-    for i, rect in enumerate(rects):
-        x1, y1, x2, y2 = rect
-        cropped_person = frame[y1:y2, x1:x2]  # Crop the person from the frame
+        # Update tracker
+        objects = ct.update([(x1, y1, x2, y2) for x1, y1, x2, y2 in rects])
+        counting(objects, frame)
 
-        # Predict gender
-        gender = predict_gender(cropped_person)
+        # Lone woman check
+        lone_women_count = 0
+        try:
+            if (is_night_time() and 
+                is_lone_person(objects) and 
+                female_count == 1):
+                cv2.imwrite(f"lone_woman_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg", frame)
+                lone_women_count = 1
+        except Exception as e:
+            print(f"Lone woman check failed: {e}")
 
-        # Count genders
-        if gender == 'Man':
-            male_count += 1
-        elif gender == 'Woman':
-            female_count += 1
+        # Update JSON data
+        json_data.update({
+            "people_count": len(objects),
+            "men": male_count,
+            "women": female_count,
+            "lone_women": lone_women_count
+        })
 
-    # Update Centroid Tracker and Count
-    objects = ct.update([(x1, y1, x2, y2) for x1, y1, x2, y2 in rects])
-    counting(objects, frame)
+        # # Annotate frame
+        # cv2.putText(frame, f"People: {len(objects)}", (10, 35), 
+        #            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+        # cv2.putText(frame, f"M: {male_count} | F: {female_count}", (10, 55),
+        #            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
-    # Check for lone woman at night
-    lone_women_count = 0
-    if is_night_time() and is_lone_person(objects) and female_count == 1:
-        print("Lone woman detected at night!")
-        lone_women_count += 1
-        # Save the frame of lone woman detected at night
-        cv2.imwrite(f"lone_woman_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg", frame)
+    except Exception as e:
+        json_data["error"] = str(e)
+        print(f"Frame processing error: {e}")
 
-    # Display Number of People and Gender Counts
-    cv2.putText(frame, f"People in Frame: {len(objects)}", (10, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-    cv2.putText(frame, f"Males: {male_count} | Females: {female_count}", (10, 55), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+    finally:
+        # Always save JSON data regardless of errors
+        try:
+            with open('people_count.json', 'w') as json_file:
+                json.dump(json_data, json_file, indent=2)
+        except Exception as e:
+            print(f"Failed to save JSON: {e}")
 
-    # Display the frame
-    cv2.imshow("Frame", frame)
-
-    # Update JSON data
-    json_data['people_count'] = len(objects)
-    json_data['men'] = male_count
-    json_data['women'] = female_count
-    json_data['lone_women'] = lone_women_count
-
-    # Save JSON data periodically if needed
-    with open('people_count.json', 'w') as json_file:
-        json.dump(json_data, json_file)
-
-    # Press 'q' to quit the loop
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
-
-# Release resources
-cap.release()
-cv2.destroyAllWindows()
+    return frame, json_data
