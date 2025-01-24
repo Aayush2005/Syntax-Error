@@ -52,7 +52,7 @@ pip install -r requirements.txt
 # Optional for GPU Support
 pip install torch torchvision --extra-index-url https://download.pytorch.org/whl/cu117
 
-
+```
 # Team Details
 - **Team Name:** Syntax Error
 - **Members:**
